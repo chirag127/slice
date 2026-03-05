@@ -2,15 +2,12 @@ import { useState, useEffect } from 'react';
 import {
     DollarSign,
     TrendingUp,
-    Users,
     Activity,
     Calendar,
     ChevronRight,
-    AlertCircle,
     Target,
     X,
-    Search,
-    ArrowUpRight
+    Search
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { db } from '../../lib/firebase';
