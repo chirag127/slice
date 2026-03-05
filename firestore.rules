@@ -1,0 +1,61 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    function isAdmin() {
+      return request.auth != null && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+    
+    function isAdminOrManager() {
+      return request.auth != null && 
+             (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'manager');
+    }
+    
+    function isActiveUser() {
+      return request.auth != null && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'active';
+    }
+    
+    // USERS: Reps read own, Admins read/write all
+    match /users/{userId} {
+      allow read: if request.auth != null && (request.auth.uid == userId || isAdmin());
+      allow write: if request.auth != null && isAdmin();
+      allow create: if request.auth != null;
+    }
+    
+    // COMMISSION_PLANS: Reps read, Admins write
+    match /commission_plans/{planId} {
+      allow read: if request.auth != null && (isActiveUser() || isAdmin());
+      allow write: if request.auth != null && isAdmin();
+    }
+    
+    // TRANSACTIONS: Reps read own, Admins read/write all
+    match /transactions/{transactionId} {
+      allow read: if request.auth != null && (resource.data.repId == request.auth.uid || isAdminOrManager());
+      allow write: if request.auth != null && isAdminOrManager();
+      allow list: if request.auth != null && (resource.data.repId == request.auth.uid || isAdminOrManager());
+    }
+    
+    // PAYOUTS: Reps read own, Admins read/write all
+    match /payouts/{payoutId} {
+      allow read: if request.auth != null && (resource.data.repId == request.auth.uid || isAdminOrManager());
+      allow write: if request.auth != null && isAdminOrManager();
+      allow list: if request.auth != null && (resource.data.repId == request.auth.uid || isAdminOrManager());
+    }
+    
+    // PAYOUT_CYCLES
+    match /payout_cycles/{cycleId} {
+      allow read: if request.auth != null && isActiveUser();
+      allow write: if request.auth != null && isAdminOrManager();
+    }
+    
+    // AUDIT_LOGS: Admins only
+    match /audit_logs/{logId} {
+      allow read: if request.auth != null && isAdmin();
+      allow write: if request.auth != null && isAdmin();
+    }
+  }
+}
