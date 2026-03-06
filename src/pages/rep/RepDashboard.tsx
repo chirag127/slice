@@ -1,15 +1,8 @@
-import { useState, useEffect } from 'react';
-import {
-    DollarSign,
-    TrendingUp,
-    Activity,
-    Calendar,
-    ChevronRight,
-    Target,
-    X,
-    Search
-} from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
+import { db } from '../../lib/firebase/config';
 import { useAuth } from '../../context/AuthContext';
+<<<<<<< HEAD
 import { db } from '../../lib/firebase';
 import {
     collection,
@@ -49,30 +42,53 @@ export default function RepDashboard() {
         count: 0,
         tier: 'Standard'
     });
+=======
+import { type Payout, type Transaction, type CommissionPlan } from '../../lib/CommissionEngine';
+import { DollarSign, FileText, Activity } from 'lucide-react';
+import { format } from 'date-fns';
 
-    useEffect(() => {
-        if (user && profile?.plan_id) {
-            fetchData();
+const RepDashboard: React.FC = () => {
+  const { user } = useAuth();
+  const [payouts, setPayouts] = useState<Payout[]>([]);
+  const [recentTransactions, setRecentTransactions] = useState<Transaction[]>([]);
+  const [plan, setPlan] = useState<CommissionPlan | null>(null);
+  const [loading, setLoading] = useState(true);
+>>>>>>> bcda1b509d88e925507d3cf43fe44e3e34c7adaf
+
+  useEffect(() => {
+    const fetchDashboardData = async () => {
+      if (!user?.uid || !user?.plan_id) {
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      try {
+        // Fetch Plan Details
+        const planDoc = await getDocs(query(collection(db, 'commission_plans'), where('plan_id', '==', user.plan_id)));
+        if (!planDoc.empty) {
+          setPlan(planDoc.docs[0].data() as CommissionPlan);
         }
-    }, [user, profile]);
 
-    async function fetchData() {
-        setLoading(true);
-        try {
-            // 1. Fetch Plan
-            let currentPlan: CommissionPlan | null = null;
-            if (profile?.plan_id) {
-                const planSnap = await getDoc(doc(db, 'plans', profile.plan_id));
-                if (planSnap.exists()) {
-                    currentPlan = { id: planSnap.id, ...planSnap.data() } as CommissionPlan;
-                    setPlan(currentPlan);
-                }
-            }
+        // Fetch Open Payouts
+        const payoutsQuery = query(
+          collection(db, 'payouts'),
+          where('rep_uid', '==', user.uid),
+          orderBy('cycle_month', 'desc')
+        );
+        const payoutsSnap = await getDocs(payoutsQuery);
+        setPayouts(payoutsSnap.docs.map(doc => doc.data() as Payout));
 
-            // 2. Fetch Transactions for current month
-            const now = new Date();
-            const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+        // Fetch Recent Transactions
+        const txQuery = query(
+          collection(db, 'transactions'),
+          where('rep_uid', '==', user.uid),
+          orderBy('date', 'desc')
+        );
+        const txSnap = await getDocs(txQuery);
+        setRecentTransactions(txSnap.docs.map(doc => doc.data() as Transaction).slice(0, 50)); // Limit client side for view
 
+<<<<<<< HEAD
             const q = query(
                 collection(db, 'transactions'),
                 where('repId', '==', user?.uid),
@@ -434,9 +450,23 @@ function StatCard({ title, value, icon, trend, color }: { title: string, value: 
         green: 'from-emerald-600 to-teal-600 text-emerald-600 bg-emerald-50 border-emerald-100',
         purple: 'from-purple-600 to-violet-600 text-purple-600 bg-purple-50 border-purple-100',
         amber: 'from-amber-500 to-orange-600 text-amber-600 bg-amber-50 border-amber-100'
+=======
+      } catch (error) {
+        console.error("Error fetching rep data:", error);
+      } finally {
+        setLoading(false);
+      }
+>>>>>>> bcda1b509d88e925507d3cf43fe44e3e34c7adaf
     };
 
+    fetchDashboardData();
+  }, [user]);
+
+  if (loading) return <div className="p-8 text-center text-secondary">Loading your dashboard...</div>;
+
+  if (!user?.plan_id) {
     return (
+<<<<<<< HEAD
         <div className="bg-white p-10 rounded-[3rem] border border-gray-100 shadow-sm hover:shadow-2xl transition-all duration-700 group relative overflow-hidden">
             <div className={`absolute top-0 right-0 w-32 h-32 opacity-5 rounded-bl-full -mr-12 -mt-12 bg-current transition-all group-hover:scale-125 duration-700 ${variants[color].split(' ')[2]}`} />
 
@@ -451,6 +481,160 @@ function StatCard({ title, value, icon, trend, color }: { title: string, value: 
                 <div className={`w-2 h-2 rounded-full animate-pulse ${variants[color].split(' ')[2]}`} />
                 <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{trend}</span>
             </div>
+=======
+      <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mt-6">
+        <div className="flex">
+          <div className="ml-3">
+            <p className="text-sm text-yellow-700">
+              You currently do not have a commission plan assigned. Please contact your administrator.
+            </p>
+          </div>
+>>>>>>> bcda1b509d88e925507d3cf43fe44e3e34c7adaf
         </div>
+      </div>
     );
-}
+  }
+
+  // Calculate current open cycle totals
+  const openPayout = payouts.find(p => p.status === 'open');
+  const currentCommission = openPayout?.total_commission || 0;
+  const currentGross = openPayout?.total_gross || 0;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-primary tracking-tight">My Commissions</h1>
+        <div className="text-sm text-secondary bg-surface px-3 py-1 rounded-full border border-border">
+          Plan: <span className="font-semibold">{plan?.name || 'Unknown'}</span>
+        </div>
+      </div>
+
+      {/* KPI Cards */}
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="bg-surface overflow-hidden shadow rounded-lg border border-border">
+          <div className="p-5">
+            <div className="flex items-center">
+              <div className="flex-shrink-0">
+                <DollarSign className="h-6 w-6 text-green-500" aria-hidden="true" />
+              </div>
+              <div className="ml-5 w-0 flex-1">
+                <dl>
+                  <dt className="text-sm font-medium text-secondary truncate">Estimated Commission (Open Cycle)</dt>
+                  <dd className="flex items-baseline">
+                    <div className="text-2xl font-bold text-primary">
+                      ${currentCommission.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    </div>
+                  </dd>
+                </dl>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-surface overflow-hidden shadow rounded-lg border border-border">
+          <div className="p-5">
+            <div className="flex items-center">
+              <div className="flex-shrink-0">
+                <Activity className="h-6 w-6 text-blue-500" aria-hidden="true" />
+              </div>
+              <div className="ml-5 w-0 flex-1">
+                <dl>
+                  <dt className="text-sm font-medium text-secondary truncate">Total Gross Volume (Open Cycle)</dt>
+                  <dd className="flex items-baseline">
+                    <div className="text-2xl font-bold text-primary">
+                      ${currentGross.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    </div>
+                  </dd>
+                </dl>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Payouts History Table */}
+        <div className="bg-surface shadow sm:rounded-lg border border-border">
+          <div className="px-4 py-5 sm:px-6 border-b border-border flex items-center justify-between">
+            <h3 className="text-lg leading-6 font-medium text-primary">Payout Cycles</h3>
+            <FileText className="h-5 w-5 text-secondary" />
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-border">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider">Cycle Month</th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider">Gross Volume</th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider">Commission</th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider">Status</th>
+                </tr>
+              </thead>
+              <tbody className="bg-surface divide-y divide-border">
+                {payouts.map((payout) => (
+                  <tr key={payout.payout_id}>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-primary">{payout.cycle_month}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-secondary">${payout.total_gross.toLocaleString()}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-accent">${payout.total_commission.toLocaleString()}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-secondary">
+                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${payout.status === 'open' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}`}>
+                        {payout.status.toUpperCase()}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+                {payouts.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="px-6 py-4 whitespace-nowrap text-sm text-secondary text-center">No payouts found.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Recent Transactions Table */}
+        <div className="bg-surface shadow sm:rounded-lg border border-border">
+          <div className="px-4 py-5 sm:px-6 border-b border-border flex items-center justify-between">
+            <h3 className="text-lg leading-6 font-medium text-primary">Recent Transactions</h3>
+            <Activity className="h-5 w-5 text-secondary" />
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-border">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider">Date</th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-secondary uppercase tracking-wider">Type</th>
+                  <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-secondary uppercase tracking-wider">Amount</th>
+                </tr>
+              </thead>
+              <tbody className="bg-surface divide-y divide-border">
+                {recentTransactions.map((tx) => (
+                  <tr key={tx.transaction_id}>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-secondary">
+                      {format(new Date(tx.date), 'MMM dd, yyyy')}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-secondary">
+                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${tx.type === 'sale' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                        {tx.type.toUpperCase()}
+                      </span>
+                    </td>
+                    <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium text-right ${tx.type === 'clawback' ? 'text-danger' : 'text-primary'}`}>
+                      {tx.type === 'clawback' ? '-' : '+'}${tx.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </td>
+                  </tr>
+                ))}
+                {recentTransactions.length === 0 && (
+                  <tr>
+                    <td colSpan={3} className="px-6 py-4 whitespace-nowrap text-sm text-secondary text-center">No transactions found.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default RepDashboard;

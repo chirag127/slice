@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 import { useState, useEffect } from 'react';
 import {
     Users,
@@ -13,21 +14,23 @@ import { collection, getDocs, updateDoc, doc } from 'firebase/firestore';
 import { CurrencyUtils } from '../../lib/utils/currency';
 import { PayoutBatchManager } from '../../lib/PayoutBatchManager';
 import { useAuth } from '../../context/AuthContext';
+=======
+import React, { useState } from 'react';
+import UserManagement from './components/UserManagement';
+import PlanManagement from './components/PlanManagement';
+import CsvUpload from './components/CsvUpload';
+>>>>>>> bcda1b509d88e925507d3cf43fe44e3e34c7adaf
 
-interface Stats {
-    totalUsers: number;
-    pendingApprovals: number;
-    totalSalesVolume: number;
-    activePlans: number;
-}
+const AdminDashboard: React.FC = () => {
+  const [activeTab, setActiveTab] = useState<'users' | 'plans' | 'upload'>('users');
 
-interface UserProfile {
-    uid: string;
-    email: string;
-    role: 'admin' | 'rep' | 'pending';
-    createdAt: { seconds: number; nanoseconds: number } | null;
-}
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-primary tracking-tight">Admin Dashboard</h1>
+      </div>
 
+<<<<<<< HEAD
 export default function AdminDashboard() {
     const { user: authUser } = useAuth();
     const [stats, setStats] = useState<Stats>({
@@ -205,30 +208,52 @@ export default function AdminDashboard() {
                     </div>
                 </div>
             </div>
+=======
+      <div className="bg-surface shadow rounded-lg">
+        <div className="border-b border-border">
+          <nav className="-mb-px flex space-x-8 px-6" aria-label="Tabs">
+            <button
+              onClick={() => setActiveTab('users')}
+              className={`${
+                activeTab === 'users'
+                  ? 'border-accent text-accent'
+                  : 'border-transparent text-secondary hover:text-primary hover:border-border'
+              } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
+            >
+              Users
+            </button>
+            <button
+              onClick={() => setActiveTab('plans')}
+              className={`${
+                activeTab === 'plans'
+                  ? 'border-accent text-accent'
+                  : 'border-transparent text-secondary hover:text-primary hover:border-border'
+              } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
+            >
+              Commission Plans
+            </button>
+            <button
+              onClick={() => setActiveTab('upload')}
+              className={`${
+                activeTab === 'upload'
+                  ? 'border-accent text-accent'
+                  : 'border-transparent text-secondary hover:text-primary hover:border-border'
+              } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
+            >
+              Upload Transactions
+            </button>
+          </nav>
+>>>>>>> bcda1b509d88e925507d3cf43fe44e3e34c7adaf
         </div>
-    );
-}
 
-function StatCard({ title, value, icon, trend, color = "text-gray-900" }: { title: string, value: string, icon: React.ReactNode, trend?: string, color?: string }) {
-    return (
-        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm transition-all hover:shadow-md">
-            <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-semibold text-gray-500">{title}</span>
-                <div className="p-2 bg-slate-50 rounded-lg text-slate-400">
-                    {icon}
-                </div>
-            </div>
-            <div className={`text-2xl font-extrabold font-outfit ${color}`}>{value}</div>
-            {trend && <div className="mt-2 text-[10px] text-green-600 font-bold uppercase tracking-wider">{trend}</div>}
+        <div className="p-6">
+          {activeTab === 'users' && <UserManagement />}
+          {activeTab === 'plans' && <PlanManagement />}
+          {activeTab === 'upload' && <CsvUpload />}
         </div>
-    );
-}
+      </div>
+    </div>
+  );
+};
 
-function ActionButton({ label }: { label: string }) {
-    return (
-        <button className="w-full text-left px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 hover:text-blue-600 rounded-lg transition-all flex items-center justify-between group cursor-pointer">
-            {label}
-            <ArrowRight className="w-4 h-4 opacity-0 group-hover:opacity-100 transform translate-x-[-4px] group-hover:translate-x-0 transition-all text-blue-600" />
-        </button>
-    );
-}
+export default AdminDashboard;

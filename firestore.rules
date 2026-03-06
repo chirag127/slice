@@ -2,6 +2,7 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+<<<<<<< HEAD
 
     function isAdmin() {
       return request.auth != null &&
@@ -20,11 +21,34 @@ service cloud.firestore {
     }
 
     // USERS: Reps read own, Admins read/write all
-    match /users/{userId} {
-      allow read: if request.auth != null && (request.auth.uid == userId || isAdmin());
-      allow write: if request.auth != null && isAdmin();
-      allow create: if request.auth != null;
+=======
+    
+    // Check if the user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
     }
+
+    // Check if the authenticated user has the 'admin' role
+    function isAdmin() {
+      return isAuthenticated() &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // --- RULES ---
+
+    // USERS:
+    // - Reps/Pending can read only their own document.
+    // - Admins can read and write all documents.
+    // - Allow initial creation on sign up (when they don't have a doc yet).
+>>>>>>> bcda1b509d88e925507d3cf43fe44e3e34c7adaf
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      // Only admins can update other users (e.g., change role from pending to rep, assign plan_id)
+      allow update, delete: if isAdmin();
+      // Allow user to create their own initial document upon signup
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+    }
+<<<<<<< HEAD
 
     // PLANS: Reps read, Admins write
     match /plans/{planId} {
@@ -33,11 +57,25 @@ service cloud.firestore {
     }
 
     // TRANSACTIONS: Reps read own, Admins read/write all
-    match /transactions/{transactionId} {
-      allow read: if request.auth != null && (resource.data.repId == request.auth.uid || isAdminOrManager());
-      allow write: if request.auth != null && isAdminOrManager();
-      allow list: if request.auth != null && (resource.data.repId == request.auth.uid || isAdminOrManager());
+=======
+    
+    // COMMISSION_PLANS:
+    // - Anyone authenticated can read (reps need to see their plan details).
+    // - Only Admins can create, update, or delete.
+    match /commission_plans/{planId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
     }
+    
+    // TRANSACTIONS:
+    // - Reps can read only if rep_uid matches their own uid.
+    // - Admins can read and write all.
+>>>>>>> bcda1b509d88e925507d3cf43fe44e3e34c7adaf
+    match /transactions/{transactionId} {
+      allow read: if isAuthenticated() && (resource.data.rep_uid == request.auth.uid || isAdmin());
+      allow write: if isAdmin();
+    }
+<<<<<<< HEAD
 
     // PAYOUTS: Reps read own, Admins read/write all
     match /payouts/{payoutId} {
@@ -56,6 +94,15 @@ service cloud.firestore {
     match /audit_logs/{logId} {
       allow read: if request.auth != null && isAdmin();
       allow write: if request.auth != null && isAdmin();
+=======
+    
+    // PAYOUTS:
+    // - Reps can read only if rep_uid matches their own uid.
+    // - Admins can read and write all.
+    match /payouts/{payoutId} {
+      allow read: if isAuthenticated() && (resource.data.rep_uid == request.auth.uid || isAdmin());
+      allow write: if isAdmin();
+>>>>>>> bcda1b509d88e925507d3cf43fe44e3e34c7adaf
     }
   }
 }

@@ -1,19 +1,14 @@
-import {
-  BrowserRouter as Router,
-  Routes,
-  Route,
-  Navigate
-} from 'react-router-dom';
-import { AuthProvider } from '@/context/AuthContext';
-import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
-import { AdminRoute } from '@/components/auth/AdminRoute';
-import { AppLayout } from '@/components/layout/AppLayout';
-import { LoginPage } from '@/pages/LoginPage';
-import { SignupPage } from '@/pages/SignupPage';
-import { WaitingApprovalPage } from '@/pages/WaitingApprovalPage';
-import { NotFoundPage } from '@/pages/NotFoundPage';
-import { ErrorBoundary } from '@/components/ErrorBoundary';
+import React from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider } from './context/AuthContext';
+import { ProtectedRoute } from './components/layout/ProtectedRoute';
+import { useAuth } from './context/AuthContext';
+
+// Pages (to be implemented)
+import Login from './pages/Login';
+import Signup from './pages/Signup';
 import AdminDashboard from './pages/admin/AdminDashboard';
+<<<<<<< HEAD
 import UserManagement from './pages/admin/UserManagement';
 import PlanBuilder from './pages/admin/PlanBuilder';
 import TransactionsList from './pages/admin/TransactionsList';
@@ -25,21 +20,41 @@ import RepDashboard from './pages/rep/RepDashboard';
 import TransactionHistory from './pages/rep/TransactionHistory';
 import MyPayouts from './pages/rep/MyPayouts';
 import RepSettings from './pages/rep/RepSettings';
+=======
+import RepDashboard from './pages/rep/RepDashboard';
+import PendingScreen from './pages/PendingScreen';
+import NotFound from './pages/NotFound';
+import Layout from './components/layout/Layout';
+
+const HomeRedirect: React.FC = () => {
+  const { user, loading } = useAuth();
+
+  if (loading) return <div>Loading...</div>;
+
+  if (!user) return <Navigate to="/login" replace />;
+
+  if (user.role === 'admin') return <Navigate to="/admin" replace />;
+  if (user.role === 'rep') return <Navigate to="/dashboard" replace />;
+
+  return <Navigate to="/pending" replace />;
+};
+>>>>>>> bcda1b509d88e925507d3cf43fe44e3e34c7adaf
 
 function App() {
   return (
-    <ErrorBoundary>
-      <AuthProvider>
-        <Router>
-          <Routes>
-            {/* Public Routes */}
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/signup" element={<SignupPage />} />
+    <AuthProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<HomeRedirect />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/signup" element={<Signup />} />
 
-            {/* Guarded App Routes */}
-            <Route element={<ProtectedRoute />}>
-              <Route path="/waiting-approval" element={<WaitingApprovalPage />} />
+          {/* Pending Users Route */}
+          <Route element={<ProtectedRoute allowedRoles={['pending']} />}>
+             <Route path="/pending" element={<PendingScreen />} />
+          </Route>
 
+<<<<<<< HEAD
               <Route element={<AppLayout />}>
                 <Route path="/" element={<RepDashboard />} />
                 <Route path="/transactions" element={<TransactionHistory />} />
@@ -57,15 +72,26 @@ function App() {
                 <Route path="/admin/periods" element={<PayoutPeriodManager />} />
                 <Route path="/admin/status" element={<SystemStatus />} />
               </Route>
+=======
+          {/* Authenticated Layout Routes */}
+          <Route element={<Layout />}>
+            {/* Admin Routes */}
+            <Route element={<ProtectedRoute allowedRoles={['admin']} />}>
+              <Route path="/admin" element={<AdminDashboard />} />
+>>>>>>> bcda1b509d88e925507d3cf43fe44e3e34c7adaf
             </Route>
 
-            <Route path="/404" element={<NotFoundPage />} />
-            <Route path="*" element={<Navigate to="/404" replace />} />
-          </Routes>
-        </Router>
-      </AuthProvider>
-    </ErrorBoundary>
-  )
+            {/* Rep Routes */}
+            <Route element={<ProtectedRoute allowedRoles={['rep']} />}>
+              <Route path="/dashboard" element={<RepDashboard />} />
+            </Route>
+          </Route>
+
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </BrowserRouter>
+    </AuthProvider>
+  );
 }
 
-export default App
+export default App;
