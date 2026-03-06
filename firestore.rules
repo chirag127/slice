@@ -3,59 +3,53 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
+    // Check if the user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Check if the authenticated user has the 'admin' role
     function isAdmin() {
-      return request.auth != null && 
+      return isAuthenticated() &&
              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
-    
-    function isAdminOrManager() {
-      return request.auth != null && 
-             (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
-              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'manager');
-    }
-    
-    function isActiveUser() {
-      return request.auth != null && 
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'active';
-    }
-    
-    // USERS: Reps read own, Admins read/write all
+
+    // --- RULES ---
+
+    // USERS:
+    // - Reps/Pending can read only their own document.
+    // - Admins can read and write all documents.
+    // - Allow initial creation on sign up (when they don't have a doc yet).
     match /users/{userId} {
-      allow read: if request.auth != null && (request.auth.uid == userId || isAdmin());
-      allow write: if request.auth != null && isAdmin();
-      allow create: if request.auth != null;
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      // Only admins can update other users (e.g., change role from pending to rep, assign plan_id)
+      allow update, delete: if isAdmin();
+      // Allow user to create their own initial document upon signup
+      allow create: if isAuthenticated() && request.auth.uid == userId;
     }
     
-    // COMMISSION_PLANS: Reps read, Admins write
+    // COMMISSION_PLANS:
+    // - Anyone authenticated can read (reps need to see their plan details).
+    // - Only Admins can create, update, or delete.
     match /commission_plans/{planId} {
-      allow read: if request.auth != null && (isActiveUser() || isAdmin());
-      allow write: if request.auth != null && isAdmin();
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
     }
     
-    // TRANSACTIONS: Reps read own, Admins read/write all
+    // TRANSACTIONS:
+    // - Reps can read only if rep_uid matches their own uid.
+    // - Admins can read and write all.
     match /transactions/{transactionId} {
-      allow read: if request.auth != null && (resource.data.repId == request.auth.uid || isAdminOrManager());
-      allow write: if request.auth != null && isAdminOrManager();
-      allow list: if request.auth != null && (resource.data.repId == request.auth.uid || isAdminOrManager());
+      allow read: if isAuthenticated() && (resource.data.rep_uid == request.auth.uid || isAdmin());
+      allow write: if isAdmin();
     }
     
-    // PAYOUTS: Reps read own, Admins read/write all
+    // PAYOUTS:
+    // - Reps can read only if rep_uid matches their own uid.
+    // - Admins can read and write all.
     match /payouts/{payoutId} {
-      allow read: if request.auth != null && (resource.data.repId == request.auth.uid || isAdminOrManager());
-      allow write: if request.auth != null && isAdminOrManager();
-      allow list: if request.auth != null && (resource.data.repId == request.auth.uid || isAdminOrManager());
-    }
-    
-    // PAYOUT_CYCLES
-    match /payout_cycles/{cycleId} {
-      allow read: if request.auth != null && isActiveUser();
-      allow write: if request.auth != null && isAdminOrManager();
-    }
-    
-    // AUDIT_LOGS: Admins only
-    match /audit_logs/{logId} {
-      allow read: if request.auth != null && isAdmin();
-      allow write: if request.auth != null && isAdmin();
+      allow read: if isAuthenticated() && (resource.data.rep_uid == request.auth.uid || isAdmin());
+      allow write: if isAdmin();
     }
   }
 }
