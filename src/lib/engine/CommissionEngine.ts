@@ -5,11 +5,23 @@ export class CommissionEngine {
      * Calculates the payout for a list of transactions against a specific plan.
      * All math is performed in the browser for zero-cost scalability.
      */
-    static calculatePayout(transactions: Transaction[], plan: CommissionPlan) {
+    static calculatePayout(transactions: Transaction[], plan: CommissionPlan, priorBalance: number = 0) {
         let totalSales = 0;
         let totalClawbacks = 0;
         let grossCommission = 0;
         const breakdown: any[] = [];
+
+        // 0. Handle Prior Balance Carryover
+        if (priorBalance !== 0) {
+            breakdown.push({
+                ruleId: 'Carryover',
+                description: priorBalance < 0
+                    ? `Negative balance carried forward from previous period.`
+                    : `Positive adjustment brought forward.`,
+                amount: this.round(priorBalance)
+            });
+            grossCommission += priorBalance;
+        }
 
         // 1. Separate transactions
         const allSales = transactions.filter(t => t.type === 'sale' || t.type === 'split');
@@ -38,7 +50,7 @@ export class CommissionEngine {
                 : totalSales;
 
             const baseComm = amountForTierRate * rate;
-            grossCommission = baseComm;
+            grossCommission += baseComm;
 
             breakdown.push({
                 ruleId: applicableTier ? `Tier: ${applicableTier.threshold}` : 'Base Rate',
@@ -110,13 +122,17 @@ export class CommissionEngine {
             });
         }
 
-        const payoutAmount = Math.max(0, grossCommission - totalClawbacks);
+        const netCommission = grossCommission - totalClawbacks;
+        const payoutAmount = Math.max(0, netCommission);
+        const nextCarryover = netCommission < 0 ? netCommission : 0;
 
         return {
             totalSales: this.round(totalSales),
             totalClawbacks: this.round(totalClawbacks),
             grossCommission: this.round(grossCommission),
+            netCommission: this.round(netCommission),
             payoutAmount: this.round(payoutAmount),
+            nextCarryover: this.round(nextCarryover),
             tierReached: plan.tiers.filter(t => totalSales >= t.threshold).length,
             breakdown
         };

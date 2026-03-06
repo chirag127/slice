@@ -4,16 +4,20 @@ import {
     Filter,
     Download,
     Plus,
+    X,
     ArrowUpRight,
     ArrowDownRight
 } from 'lucide-react';
 import { db } from '../../lib/firebase';
-import { collection, query, orderBy, getDocs, limit } from 'firebase/firestore';
+import { collection, query, orderBy, getDocs, limit, doc, getDoc, deleteDoc } from 'firebase/firestore';
+import { useAuth } from '../../context/AuthContext';
+import { AuditEngine } from '../../lib/engine/AuditTrail';
 import type { Transaction } from '../../lib/engine/types';
 import { CurrencyUtils } from '../../lib/utils/currency';
 import TransactionForm from '../../components/admin/TransactionForm';
 
 export default function TransactionsList() {
+    const { user: authUser } = useAuth();
     const [transactions, setTransactions] = useState<Transaction[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
@@ -33,6 +37,35 @@ export default function TransactionsList() {
             console.error(err);
         } finally {
             setLoading(false);
+        }
+    }
+
+    async function handleDelete(id: string, date: string) {
+        if (!confirm("Are you sure you want to delete this transaction? This action is permanent.")) return;
+
+        try {
+            // Check if period is locked
+            const periodId = date.substring(0, 7);
+            const periodSnap = await getDoc(doc(db, 'periods', periodId));
+
+            if (periodSnap.exists() && periodSnap.data().status === 'locked') {
+                return alert("This period is locked. Transactions cannot be deleted for finalized months.");
+            }
+
+            if (authUser) {
+                await AuditEngine.log(
+                    'TRANSACTION_DELETED',
+                    { uid: authUser.uid, email: authUser.email || 'Admin' },
+                    `Transaction ${id} from period ${periodId} was deleted.`,
+                    { transactionId: id, periodId }
+                );
+            }
+
+            await deleteDoc(doc(db, 'transactions', id));
+            setTransactions(prev => prev.filter(t => t.id !== id));
+        } catch (err) {
+            console.error(err);
+            alert("Failed to delete transaction");
         }
     }
 
@@ -140,9 +173,18 @@ export default function TransactionsList() {
                                         {CurrencyUtils.formatINR(t.amount)}
                                     </td>
                                     <td className="px-6 py-4 text-center">
-                                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest bg-blue-50 text-blue-700 border border-blue-100">
-                                            Processed
-                                        </span>
+                                        <div className="flex items-center justify-center gap-2">
+                                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest bg-blue-50 text-blue-700 border border-blue-100">
+                                                Processed
+                                            </span>
+                                            <button
+                                                onClick={() => handleDelete(t.id, t.date)}
+                                                className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors cursor-pointer opacity-0 group-hover:opacity-100"
+                                                title="Delete Transaction"
+                                            >
+                                                <X className="w-4 h-4" />
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                             ))}

@@ -20,8 +20,11 @@ import TransactionsList from './pages/admin/TransactionsList';
 import CSVImporter from './pages/admin/CSVImporter';
 import PayoutHistory from './pages/admin/PayoutHistory';
 import PayoutPeriodManager from './pages/admin/PayoutPeriodManager';
+import SystemStatus from './pages/admin/SystemStatus';
 import RepDashboard from './pages/rep/RepDashboard';
 import TransactionHistory from './pages/rep/TransactionHistory';
+import MyPayouts from './pages/rep/MyPayouts';
+import RepSettings from './pages/rep/RepSettings';
 
 function App() {
   return (
@@ -40,7 +43,8 @@ function App() {
               <Route element={<AppLayout />}>
                 <Route path="/" element={<RepDashboard />} />
                 <Route path="/transactions" element={<TransactionHistory />} />
-                <Route path="/settings" element={<div className="p-8 text-center text-secondary bg-surface border border-border rounded-xl">User settings coming soon...</div>} />
+                <Route path="/payouts" element={<MyPayouts />} />
+                <Route path="/settings" element={<RepSettings />} />
               </Route>
 
               <Route element={<AdminRoute />}>
@@ -51,6 +55,7 @@ function App() {
                 <Route path="/admin/import" element={<CSVImporter />} />
                 <Route path="/admin/payouts" element={<PayoutHistory />} />
                 <Route path="/admin/periods" element={<PayoutPeriodManager />} />
+                <Route path="/admin/status" element={<SystemStatus />} />
               </Route>
             </Route>
 

@@ -23,6 +23,16 @@ import {
 import { CommissionEngine } from '../../lib/engine/CommissionEngine';
 import type { Transaction, CommissionPlan, PayoutSummary } from '../../lib/engine/types';
 import PayoutBreakdown from '../../components/rep/PayoutBreakdown';
+import { CurrencyUtils } from '../../lib/utils/currency';
+import {
+    XAxis,
+    YAxis,
+    CartesianGrid,
+    Tooltip,
+    ResponsiveContainer,
+    AreaChart,
+    Area
+} from 'recharts';
 
 export default function RepDashboard() {
     const { user, profile } = useAuth();
@@ -31,6 +41,8 @@ export default function RepDashboard() {
     const [loading, setLoading] = useState(true);
     const [summary, setSummary] = useState<PayoutSummary | null>(null);
     const [showBreakdown, setShowBreakdown] = useState(false);
+    const [trendData, setTrendData] = useState<any[]>([]);
+    const [projected, setProjected] = useState(0);
     const [stats, setStats] = useState({
         totalSales: 0,
         commission: 0,
@@ -72,16 +84,56 @@ export default function RepDashboard() {
             const ts = snap.docs.map(d => ({ id: d.id, ...d.data() } as Transaction));
             setTransactions(ts);
 
-            // 3. Calculate Stats
+            // 3. Calculate Stats & Projections
             if (currentPlan) {
+                const netSales = ts.reduce((sum, t) => {
+                    const amount = t.type === 'split' ? t.amount * (t.splitPercentage || 0.5) : (t.type === 'clawback' ? -t.amount : t.amount);
+                    return sum + amount;
+                }, 0);
+
                 const payout = CommissionEngine.calculatePayout(ts, currentPlan);
                 setSummary(payout);
+
+                // Task 110: Projected Earnings (Linear Projection)
+                const dayOfMonth = now.getDate();
+                const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+                const velocity = Math.max(0, netSales) / Math.max(1, dayOfMonth);
+                const projectedSales = velocity * daysInMonth;
+
+                const mockTs: Transaction[] = [{
+                    id: 'mock',
+                    amount: projectedSales,
+                    date: now.toISOString(),
+                    type: 'sale',
+                    repId: user?.uid || ''
+                }];
+                const projectedPayout = CommissionEngine.calculatePayout(mockTs, currentPlan);
+                setProjected(projectedPayout.payoutAmount);
+
                 setStats({
-                    totalSales: ts.reduce((sum, t) => sum + (t.type === 'sale' ? t.amount : 0), 0),
+                    totalSales: netSales,
                     commission: payout.payoutAmount,
                     count: ts.length,
-                    tier: ts.reduce((sum, t) => sum + t.amount, 0) >= (currentPlan.quota || 0) ? 'Accelerator 🚀' : 'Standard'
+                    tier: netSales >= (currentPlan.quota || 10000000) ? 'Accelerator 🚀' : 'Standard'
                 });
+
+                // Task 113: Sales Trend (Last 7 days)
+                const trend: Record<string, number> = {};
+                for (let i = 6; i >= 0; i--) {
+                    const d = new Date();
+                    d.setDate(d.getDate() - i);
+                    trend[d.toISOString().split('T')[0]] = 0;
+                }
+                ts.forEach(t => {
+                    const dateKey = t.date.split('T')[0];
+                    if (trend[dateKey] !== undefined) {
+                        trend[dateKey] += (t.type === 'sale' ? t.amount : 0);
+                    }
+                });
+                setTrendData(Object.entries(trend).map(([name, value]) => ({
+                    name: name.split('-').reverse().slice(0, 2).reverse().join('/'),
+                    value
+                })));
             }
         } catch (err) {
             console.error(err);
@@ -96,203 +148,309 @@ export default function RepDashboard() {
         </div>
     );
 
+    const quota = plan?.quota || 500000;
+    const progress = Math.min(100, Math.round((stats.totalSales / quota) * 100));
+
     return (
-        <div className="space-y-8 animate-in fade-in duration-500 text-black font-inter">
-            {/* Greeting & Header */}
+        <div className="space-y-8 animate-in fade-in duration-500 text-black font-inter pb-12">
+            {/* Header */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                    <h1 className="text-3xl font-black text-gray-900 font-outfit">Rep Command Center</h1>
-                    <p className="text-gray-500 font-medium tracking-tight">Welcome back! Here's your performance for {new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}.</p>
+                    <h1 className="text-4xl font-black text-gray-900 font-outfit tracking-tight">Rep Command Center</h1>
+                    <p className="text-gray-500 font-medium">Performance intelligence for {new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}.</p>
                 </div>
-                <div className="flex items-center gap-2 px-4 py-2 bg-blue-50 border border-blue-100 rounded-2xl">
-                    <Calendar className="w-4 h-4 text-blue-600" />
-                    <span className="text-sm font-bold text-blue-700">Current Period: {new Date().toISOString().substring(0, 7)}</span>
+                <div className="flex items-center gap-3 px-6 py-3 bg-white border border-gray-100 rounded-[2rem] shadow-sm">
+                    <Calendar className="w-5 h-5 text-blue-600" />
+                    <div>
+                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Active Cycle</p>
+                        <p className="text-sm font-black text-gray-900">{new Date().toISOString().substring(0, 7)}</p>
+                    </div>
                 </div>
             </div>
 
-            {/* Main Stats Grid */}
+            {/* Stats Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <StatCard
-                    label="Estimated Commission"
-                    value={`₹${stats.commission.toLocaleString()}`}
-                    icon={<DollarSign className="w-5 h-5" />}
+                    title="Monthly Volume"
+                    value={CurrencyUtils.formatINR(stats.totalSales)}
+                    icon={<Activity className="w-6 h-6" />}
+                    trend="Real-time sales"
                     color="blue"
                 />
                 <StatCard
-                    label="Monthly Volume"
-                    value={`₹${stats.totalSales.toLocaleString()}`}
-                    icon={<TrendingUp className="w-5 h-5" />}
+                    title="Current Earnings"
+                    value={CurrencyUtils.formatINR(stats.commission)}
+                    icon={<DollarSign className="w-6 h-6" />}
+                    trend="Calculated payout"
                     color="green"
                 />
                 <StatCard
-                    label="Deals Closed"
-                    value={stats.count.toString()}
-                    icon={<Activity className="w-5 h-5" />}
+                    title="Projected Payout"
+                    value={CurrencyUtils.formatINR(projected)}
+                    icon={<TrendingUp className="w-6 h-6" />}
+                    trend="End of cycle forecast"
                     color="purple"
                 />
                 <StatCard
-                    label="Current Status"
+                    title="Status"
                     value={stats.tier}
-                    icon={<Target className="w-5 h-5" />}
+                    icon={<Target className="w-6 h-6" />}
+                    trend={progress >= 100 ? "Goal achieved!" : `Next tier at ${CurrencyUtils.formatINR(quota)}`}
                     color="amber"
                 />
             </div>
 
-            {/* Middle Section: Progress & Plan Info */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                <div className="lg:col-span-2 bg-white rounded-3xl border border-gray-200 p-8 shadow-sm">
-                    <div className="flex justify-between items-center mb-8">
+            {/* Visual Insights */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* Trend Chart */}
+                <div className="lg:col-span-2 bg-white p-10 rounded-[3rem] border border-gray-100 shadow-sm relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 w-40 h-40 bg-blue-50/50 rounded-bl-full -mr-20 -mt-20 transition-all group-hover:scale-110" />
+
+                    <div className="flex justify-between items-center mb-10 relative">
                         <div>
-                            <h3 className="text-xl font-bold text-gray-900 font-outfit">Quota Progress</h3>
-                            <p className="text-sm text-gray-500 font-medium">Progress towards your next accelerator tier.</p>
+                            <h3 className="text-xl font-black font-outfit">Sales Momentum</h3>
+                            <p className="text-xs text-gray-400 font-bold uppercase tracking-widest mt-1">7-Day Daily Revenue</p>
                         </div>
-                        <span className="text-2xl font-black text-blue-600">
-                            {Math.round((stats.totalSales / (plan?.quota || 1)) * 100)}%
-                        </span>
+                        <div className="flex gap-4">
+                            <div className="flex items-center gap-2">
+                                <div className="w-2 h-2 rounded-full bg-blue-500" />
+                                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Volume (₹)</span>
+                            </div>
+                        </div>
                     </div>
 
-                    <div className="relative h-4 bg-gray-100 rounded-full overflow-hidden mb-4">
-                        <div
-                            className="absolute top-0 left-0 h-full bg-blue-600 transition-all duration-1000 ease-out shadow-[0_0_10px_rgba(37,99,235,0.4)]"
-                            style={{ width: `${Math.min(100, (stats.totalSales / (plan?.quota || 1)) * 100)}%` }}
-                        />
-                    </div>
-
-                    <div className="flex justify-between text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">
-                        <span>Baseline: ₹0</span>
-                        <span>Accelerator Milestone: ₹{(plan?.quota || 0).toLocaleString()}</span>
+                    <div className="h-[320px] w-full pr-4">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart data={trendData}>
+                                <defs>
+                                    <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.15} />
+                                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                                    </linearGradient>
+                                </defs>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                <XAxis
+                                    dataKey="name"
+                                    axisLine={false}
+                                    tickLine={false}
+                                    tick={{ fontSize: 10, fontWeight: 900, fill: '#94a3b8' }}
+                                    dy={15}
+                                />
+                                <YAxis
+                                    axisLine={false}
+                                    tickLine={false}
+                                    tick={{ fontSize: 10, fontWeight: 900, fill: '#94a3b8' }}
+                                    tickFormatter={(v) => `₹${v / 1000}k`}
+                                />
+                                <Tooltip
+                                    contentStyle={{ borderRadius: '24px', border: 'none', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.15)', padding: '16px' }}
+                                    itemStyle={{ fontWeight: 900, fontSize: '12px' }}
+                                    labelStyle={{ fontWeight: 900, marginBottom: '4px', fontSize: '10px', color: '#64748b' }}
+                                />
+                                <Area
+                                    type="monotone"
+                                    dataKey="value"
+                                    stroke="#3b82f6"
+                                    strokeWidth={5}
+                                    fillOpacity={1}
+                                    fill="url(#colorValue)"
+                                    animationDuration={2000}
+                                />
+                            </AreaChart>
+                        </ResponsiveContainer>
                     </div>
                 </div>
 
-                <div className="bg-slate-900 rounded-[2.5rem] p-8 text-white shadow-2xl shadow-slate-200">
-                    <h3 className="text-xl font-bold mb-6 font-outfit">Active Plan Details</h3>
-                    <div className="space-y-4">
-                        <div className="p-5 bg-white/5 rounded-2xl border border-white/10 hover:bg-white/10 transition-colors">
-                            <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mb-1">Assigned Plan</p>
-                            <p className="text-base font-bold text-white">{plan?.name || 'Assigned Soon'}</p>
+                {/* Quota Progress */}
+                <div className="bg-white p-10 rounded-[3rem] border border-gray-100 shadow-sm flex flex-col relative overflow-hidden group">
+                    <div className="absolute bottom-0 left-0 w-32 h-32 bg-slate-50 rounded-tr-full -ml-16 -mb-16 transition-all group-hover:scale-110" />
+
+                    <h3 className="text-xl font-black font-outfit mb-2 relative">Target Tracking</h3>
+                    <p className="text-xs text-gray-500 font-bold uppercase tracking-widest mb-12 relative">Progress to Accelerator</p>
+
+                    <div className="flex-1 flex flex-col items-center justify-center relative">
+                        <div className="relative w-56 h-56 flex items-center justify-center">
+                            <svg className="w-full h-full transform -rotate-90">
+                                <circle
+                                    cx="112"
+                                    cy="112"
+                                    r="100"
+                                    stroke="currentColor"
+                                    strokeWidth="16"
+                                    fill="transparent"
+                                    className="text-slate-50"
+                                />
+                                <circle
+                                    cx="112"
+                                    cy="112"
+                                    r="100"
+                                    stroke="currentColor"
+                                    strokeWidth="16"
+                                    fill="transparent"
+                                    strokeDasharray={2 * Math.PI * 100}
+                                    strokeDashoffset={2 * Math.PI * 100 * (1 - progress / 100)}
+                                    strokeLinecap="round"
+                                    className="text-blue-600 transition-all duration-1000 ease-out"
+                                />
+                            </svg>
+                            <div className="absolute flex flex-col items-center justify-center">
+                                <span className="text-5xl font-black text-slate-900 font-outfit letter-tight">{progress}%</span>
+                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Goal completion</span>
+                            </div>
                         </div>
-                        <div className="p-5 bg-white/5 rounded-2xl border border-white/10 hover:bg-white/10 transition-colors">
-                            <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mb-1">Standard Rate</p>
-                            <p className="text-base font-bold text-white">{plan?.baseRate || 0}% Per Sale</p>
+                    </div>
+
+                    <div className="mt-8 space-y-5 relative">
+                        <div className="flex justify-between items-end">
+                            <div>
+                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Active Velocity</p>
+                                <p className="text-lg font-black text-gray-900 font-outfit">{CurrencyUtils.formatINR(stats.totalSales)}</p>
+                            </div>
+                            <div className="text-right">
+                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Milestone</p>
+                                <p className="text-sm font-black text-slate-500">{CurrencyUtils.formatINR(quota)}</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Bottom Section */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                {/* Plan Highlights Card */}
+                <div className="bg-slate-900 rounded-[3rem] p-10 text-white shadow-2xl relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 w-40 h-40 bg-white/5 rounded-bl-full -mr-20 -mt-20 transition-all group-hover:scale-110" />
+
+                    <h3 className="text-2xl font-black mb-8 font-outfit">Plan Details</h3>
+                    <div className="space-y-6">
+                        <div className="p-6 bg-white/5 rounded-3xl border border-white/10 hover:bg-white/10 transition-colors">
+                            <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mb-1">Contract Type</p>
+                            <p className="text-lg font-black text-white uppercase tracking-tight">{plan?.name || 'Standard Representative'}</p>
+                        </div>
+                        <div className="p-6 bg-white/5 rounded-3xl border border-white/10 hover:bg-white/10 transition-colors">
+                            <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mb-1">Commission Rate</p>
+                            <p className="text-lg font-black text-white">{plan?.baseRate || 0}% Baseline Profit Share</p>
                         </div>
                     </div>
                     <button
                         onClick={() => setShowBreakdown(true)}
-                        className="w-full mt-8 py-4 bg-white text-slate-900 rounded-2xl text-sm font-black hover:bg-blue-50 transition-all shadow-lg active:scale-95"
+                        className="w-full mt-10 py-5 bg-white text-slate-900 rounded-3xl text-[10px] font-black uppercase tracking-[0.2em] hover:bg-blue-50 transition-all shadow-xl active:scale-95"
                     >
-                        View Calculation breakdown
+                        Detailed Calculation Audit
                     </button>
+                </div>
+
+                {/* Recent Activity Table */}
+                <div className="lg:col-span-2 bg-white rounded-[3rem] border border-gray-100 shadow-sm overflow-hidden flex flex-col">
+                    <div className="p-10 border-b border-gray-50 flex flex-col md:flex-row justify-between items-center gap-4">
+                        <div>
+                            <h3 className="text-xl font-black font-outfit">Closing Events</h3>
+                            <p className="text-xs text-gray-400 font-bold uppercase tracking-widest mt-1">Latest verified contracts</p>
+                        </div>
+                        <div className="relative w-full md:w-auto">
+                            <Search className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+                            <input
+                                type="text"
+                                placeholder="Search transactions..."
+                                className="w-full md:w-72 pl-12 pr-6 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-[10px] font-black uppercase tracking-widest outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="overflow-x-auto flex-1">
+                        <table className="w-full text-left border-collapse">
+                            <thead>
+                                <tr className="bg-slate-50/50">
+                                    <th className="px-10 py-5 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Execution Date</th>
+                                    <th className="px-10 py-5 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Client/Project</th>
+                                    <th className="px-10 py-5 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] text-right">Contract Value</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-50">
+                                {transactions.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={3} className="px-10 py-20 text-center text-gray-300 font-black uppercase tracking-[0.3em] text-[10px]">
+                                            No recent closing activity
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    transactions.slice(0, 4).map((t) => (
+                                        <tr key={t.id} className="hover:bg-blue-50/50 transition-colors group">
+                                            <td className="px-10 py-8 text-xs font-black text-slate-500">{new Date(t.date).toLocaleDateString()}</td>
+                                            <td className="px-10 py-8">
+                                                <div className="flex flex-col">
+                                                    <span className="text-sm font-black text-slate-900 group-hover:text-blue-600 transition-colors uppercase tracking-tight">{t.description || 'Enterprise Contract'}</span>
+                                                    <div className="flex items-center gap-2 mt-1">
+                                                        <span className={`w-2 h-2 rounded-full ${t.type === 'sale' ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                                                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t.type} record</span>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td className="px-10 py-8 text-right font-black text-slate-900 font-outfit text-base">{CurrencyUtils.formatINR(t.amount)}</td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div className="p-8 bg-slate-50 text-center border-t border-slate-100">
+                        <button className="text-[10px] font-black text-slate-400 hover:text-blue-600 uppercase tracking-[0.3em] flex items-center justify-center gap-3 mx-auto transition-all group">
+                            Access Digital Ledger <ChevronRight className="w-5 h-5 group-hover:translate-x-2 transition-transform" />
+                        </button>
+                    </div>
                 </div>
             </div>
 
             {/* Breakdown Modal */}
             {showBreakdown && summary && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-md transition-all">
-                    <div className="relative w-full max-w-2xl bg-white rounded-[2rem] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-2xl transition-all">
+                    <div className="relative w-full max-w-2xl bg-white rounded-[3rem] shadow-[0_40px_100px_-20px_rgba(0,0,0,0.5)] overflow-hidden animate-in zoom-in-95 duration-500 border border-white/20">
                         <button
                             onClick={() => setShowBreakdown(false)}
-                            className="absolute top-6 right-6 p-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-full transition-colors z-10"
+                            className="absolute top-8 right-8 p-3 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-full transition-all z-10 active:scale-90"
                         >
                             <X className="w-5 h-5" />
                         </button>
                         <PayoutBreakdown summary={summary} plan={plan!} />
-                        <div className="p-6 bg-gray-50 flex justify-end">
+                        <div className="p-10 bg-slate-50 flex justify-end gap-4 border-t border-slate-100">
                             <button
                                 onClick={() => setShowBreakdown(false)}
-                                className="px-10 py-3 bg-slate-900 text-white font-black rounded-xl hover:bg-slate-800 transition-all shadow-lg shadow-slate-200"
+                                className="px-14 py-5 bg-slate-900 text-white text-[10px] font-black uppercase tracking-[0.2em] rounded-3xl hover:bg-slate-800 transition-all shadow-2xl active:scale-95"
                             >
-                                Understood
+                                Close Audit
                             </button>
                         </div>
                     </div>
                 </div>
             )}
-
-            {/* Bottom Section: Recent Activity */}
-            <div className="bg-white rounded-3xl border border-gray-200 shadow-sm overflow-hidden mb-12">
-                <div className="p-8 border-b border-gray-100 flex flex-col md:flex-row justify-between items-center gap-4">
-                    <div>
-                        <h3 className="text-xl font-bold text-gray-900 font-outfit">My Recent Deals</h3>
-                        <p className="text-sm text-gray-500 font-medium">Your latest transactions for this billing cycle.</p>
-                    </div>
-                    <div className="relative w-full md:w-auto">
-                        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                        <input
-                            type="text"
-                            placeholder="Find a deal..."
-                            className="w-full md:w-64 pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-                        />
-                    </div>
-                </div>
-
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse">
-                        <thead>
-                            <tr className="bg-gray-50/50">
-                                <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Date</th>
-                                <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Description</th>
-                                <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Type</th>
-                                <th className="px-8 py-5 text-right text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Sale Amount</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100">
-                            {transactions.length === 0 ? (
-                                <tr>
-                                    <td colSpan={4} className="px-8 py-20 text-center text-gray-400 font-bold uppercase tracking-widest text-[10px]">
-                                        No transactions found for this period.
-                                    </td>
-                                </tr>
-                            ) : (
-                                transactions.slice(0, 5).map((t) => (
-                                    <tr key={t.id} className="hover:bg-slate-50 transition-colors group">
-                                        <td className="px-8 py-6 text-sm font-bold text-gray-900">{new Date(t.date).toLocaleDateString()}</td>
-                                        <td className="px-8 py-6">
-                                            <div className="flex flex-col">
-                                                <span className="text-sm font-bold text-gray-900">{t.description || 'Enterprise Deal'}</span>
-                                                <span className="text-[10px] text-gray-400 font-mono tracking-tighter mt-0.5">ID: #{t.id.substring(0, 8)}</span>
-                                            </div>
-                                        </td>
-                                        <td className="px-8 py-6">
-                                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border ${t.type === 'sale'
-                                                ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
-                                                : 'bg-rose-50 text-rose-700 border-rose-100'
-                                                }`}>
-                                                {t.type}
-                                            </span>
-                                        </td>
-                                        <td className="px-8 py-6 text-right font-black text-gray-900">₹{t.amount.toLocaleString()}</td>
-                                    </tr>
-                                ))
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-
-                <div className="p-6 bg-gray-50/50 text-center border-t border-gray-100">
-                    <button className="text-xs font-black text-blue-600 hover:text-blue-700 uppercase tracking-widest flex items-center justify-center gap-2 mx-auto transition-all hover:gap-3">
-                        Visit Full history vault <ChevronRight className="w-4 h-4" />
-                    </button>
-                </div>
-            </div>
         </div>
     );
 }
 
-function StatCard({ label, value, icon, color }: { label: string, value: string, icon: any, color: 'blue' | 'green' | 'purple' | 'amber' }) {
+function StatCard({ title, value, icon, trend, color }: { title: string, value: string, icon: any, trend: string, color: 'blue' | 'green' | 'purple' | 'amber' }) {
     const variants = {
-        blue: 'from-blue-600 to-blue-700 shadow-blue-100',
-        green: 'from-emerald-600 to-emerald-700 shadow-emerald-100',
-        purple: 'from-indigo-600 to-indigo-700 shadow-indigo-100',
-        amber: 'from-amber-500 to-amber-600 shadow-amber-100'
+        blue: 'from-blue-600 to-indigo-600 text-blue-600 bg-blue-50 border-blue-100',
+        green: 'from-emerald-600 to-teal-600 text-emerald-600 bg-emerald-50 border-emerald-100',
+        purple: 'from-purple-600 to-violet-600 text-purple-600 bg-purple-50 border-purple-100',
+        amber: 'from-amber-500 to-orange-600 text-amber-600 bg-amber-50 border-amber-100'
     };
 
     return (
-        <div className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm hover:shadow-xl transition-all duration-500 group">
-            <div className={`w-12 h-12 bg-gradient-to-br ${variants[color]} text-white rounded-2xl flex items-center justify-center mb-6 shadow-lg group-hover:scale-110 transition-transform duration-500`}>
+        <div className="bg-white p-10 rounded-[3rem] border border-gray-100 shadow-sm hover:shadow-2xl transition-all duration-700 group relative overflow-hidden">
+            <div className={`absolute top-0 right-0 w-32 h-32 opacity-5 rounded-bl-full -mr-12 -mt-12 bg-current transition-all group-hover:scale-125 duration-700 ${variants[color].split(' ')[2]}`} />
+
+            <div className={`w-16 h-16 rounded-3xl flex items-center justify-center mb-8 shadow-xl shadow-current/5 border transition-all duration-700 group-hover:scale-110 group-hover:rotate-6 ${variants[color]}`}>
                 {icon}
             </div>
-            <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-1">{label}</p>
-            <h4 className="text-2xl font-black text-gray-900 font-outfit">{value}</h4>
+
+            <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.3em] mb-2">{title}</p>
+            <h4 className="text-3xl font-black text-gray-900 font-outfit mb-6 tracking-tight">{value}</h4>
+
+            <div className="flex items-center gap-3">
+                <div className={`w-2 h-2 rounded-full animate-pulse ${variants[color].split(' ')[2]}`} />
+                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{trend}</span>
+            </div>
         </div>
     );
 }

@@ -23,3 +23,6 @@ dist-ssr
 *.sln
 *.sw?
 .env
+ts-errors.txt
+lint-output.json
+.wrangler

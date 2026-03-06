@@ -7,22 +7,29 @@ import {
     CheckCircle2
 } from 'lucide-react';
 import { db } from '../../lib/firebase';
-import { collection, query, orderBy, getDocs, limit } from 'firebase/firestore';
+import { collection, query, orderBy, getDocs, limit, where } from 'firebase/firestore';
 import { CurrencyUtils } from '../../lib/utils/currency';
+import PayoutDetailModal from '../../components/shared/PayoutDetailModal';
 
 interface PayoutRecord {
     id: string;
     month: string;
     repEmail: string;
     planName: string;
+    totalSales: number;
+    grossCommission: number;
+    netCommission: number;
     payoutAmount: number;
     status: string;
+    breakdown: any[];
+    nextCarryover?: number;
     createdAt: { seconds: number } | null;
 }
 
 export default function PayoutHistory() {
     const [payouts, setPayouts] = useState<PayoutRecord[]>([]);
     const [loading, setLoading] = useState(true);
+    const [selectedPayout, setSelectedPayout] = useState<PayoutRecord | null>(null);
 
     useEffect(() => {
         fetchPayouts();
@@ -41,6 +48,28 @@ export default function PayoutHistory() {
         }
     }
 
+    function handleGlobalExport() {
+        if (payouts.length === 0) return;
+
+        const headers = ["Cycle (Month)", "Representative", "Plan", "Commission Amount", "Status", "Settlement ID"];
+        const rows = payouts.map(p => [
+            p.month,
+            p.repEmail,
+            p.planName,
+            p.payoutAmount.toString(),
+            p.status,
+            p.id
+        ]);
+
+        const csvContent = [headers, ...rows].map(e => e.join(",")).join("\n");
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.setAttribute("href", url);
+        link.setAttribute("download", `payout_history_${new Date().toISOString().split('T')[0]}.csv`);
+        link.click();
+    }
+
     return (
         <div className="space-y-6 text-black">
             <div className="flex justify-between items-center">
@@ -48,7 +77,10 @@ export default function PayoutHistory() {
                     <h1 className="text-2xl font-bold text-gray-900 font-outfit">Payout History</h1>
                     <p className="text-gray-500">Review and audit all generated commission settlements.</p>
                 </div>
-                <button className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors cursor-pointer">
+                <button
+                    onClick={handleGlobalExport}
+                    className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors cursor-pointer"
+                >
                     <Download className="w-4 h-4" /> Global Export
                 </button>
             </div>
@@ -91,10 +123,12 @@ export default function PayoutHistory() {
                                         {CurrencyUtils.formatINR(p.payoutAmount)}
                                     </td>
                                     <td className="px-6 py-4 text-center">
-                                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-green-50 text-green-700 border border-green-100">
-                                            <CheckCircle2 className="w-3 h-3" />
-                                            Paid
-                                        </span>
+                                        <button
+                                            onClick={() => setSelectedPayout(p)}
+                                            className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-slate-100 text-slate-700 border border-slate-200 hover:bg-slate-200 transition-all cursor-pointer"
+                                        >
+                                            View Details
+                                        </button>
                                     </td>
                                 </tr>
                             ))}
@@ -112,6 +146,13 @@ export default function PayoutHistory() {
                     </table>
                 )}
             </div>
+
+            {selectedPayout && (
+                <PayoutDetailModal
+                    payout={selectedPayout}
+                    onClose={() => setSelectedPayout(null)}
+                />
+            )}
         </div>
     );
 }

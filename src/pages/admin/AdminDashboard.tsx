@@ -12,6 +12,7 @@ import { db } from '../../lib/firebase';
 import { collection, getDocs, updateDoc, doc } from 'firebase/firestore';
 import { CurrencyUtils } from '../../lib/utils/currency';
 import { PayoutBatchManager } from '../../lib/PayoutBatchManager';
+import { useAuth } from '../../context/AuthContext';
 
 interface Stats {
     totalUsers: number;
@@ -28,6 +29,7 @@ interface UserProfile {
 }
 
 export default function AdminDashboard() {
+    const { user: authUser } = useAuth();
     const [stats, setStats] = useState<Stats>({
         totalUsers: 0,
         pendingApprovals: 0,
@@ -89,7 +91,10 @@ export default function AdminDashboard() {
 
         setIsGenerating(true);
         try {
-            const results = await PayoutBatchManager.generateMonthlyPayouts(month);
+            const results = await PayoutBatchManager.generateMonthlyPayouts(
+                month,
+                authUser ? { uid: authUser.uid, email: authUser.email || 'Admin' } : undefined
+            );
             alert(`Successfully generated ${results.length} payouts.`);
         } catch (error: unknown) {
             console.error(error);

@@ -8,8 +8,11 @@ import {
 } from 'lucide-react';
 import { db } from '../../lib/firebase';
 import { collection, writeBatch, doc, serverTimestamp, getDoc } from 'firebase/firestore';
+import { useAuth } from '../../context/AuthContext';
+import { AuditEngine } from '../../lib/engine/AuditTrail';
 
 export default function CSVImporter() {
+  const { user: authUser } = useAuth();
   const [, setFile] = useState<File | null>(null);
   const [data, setData] = useState<string[][]>([]);
   const [headers, setHeaders] = useState<string[]>([]);
@@ -92,6 +95,16 @@ export default function CSVImporter() {
       });
 
       await batch.commit();
+
+      if (authUser) {
+        await AuditEngine.log(
+          'IMPORT_COMPLETED',
+          { uid: authUser.uid, email: authUser.email || 'Admin' },
+          `Imported ${data.length} transactions across ${involvedPeriods.join(', ')}.`,
+          { count: data.length, periods: involvedPeriods }
+        );
+      }
+
       setStep(3);
     } catch (err) {
       console.error(err);

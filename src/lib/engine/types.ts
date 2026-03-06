@@ -39,7 +39,9 @@ export interface PayoutSummary {
     totalSales: number;
     totalClawbacks: number;
     grossCommission: number;
+    netCommission: number;
     payoutAmount: number;
+    nextCarryover: number;
     tierReached: number;
     breakdown: PayoutBreakdownItem[];
 }

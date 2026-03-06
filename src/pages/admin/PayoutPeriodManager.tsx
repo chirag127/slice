@@ -16,6 +16,8 @@ import {
     limit,
     serverTimestamp
 } from 'firebase/firestore';
+import { useAuth } from '../../context/AuthContext';
+import { AuditEngine } from '../../lib/engine/AuditTrail';
 
 interface PayoutPeriod {
     id: string; // YYYY-MM
@@ -25,6 +27,7 @@ interface PayoutPeriod {
 }
 
 export default function PayoutPeriodManager() {
+    const { user: authUser } = useAuth();
     const [periods, setPeriods] = useState<PayoutPeriod[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -35,20 +38,9 @@ export default function PayoutPeriodManager() {
     async function fetchPeriods() {
         setLoading(true);
         try {
-            const snap = await getDocs(query(collection(db, 'periods'), orderBy('id', 'desc'), limit(12)));
-            const existing = snap.docs.map(d => ({ id: d.id, ...d.data() } as PayoutPeriod));
-
-            // Generate last 6 months if they don't exist
-            const now = new Date();
-            const generated: PayoutPeriod[] = [];
-            for (let i = 0; i < 6; i++) {
-                const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-                const id = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-                const found = existing.find(p => p.id === id);
-                generated.push(found || { id, status: 'open' });
-            }
-
-            setPeriods(generated);
+            const q = query(collection(db, 'payout_periods'), orderBy('id', 'desc'), limit(12));
+            const snap = await getDocs(q);
+            setPeriods(snap.docs.map(d => ({ id: d.id, ...d.data() } as PayoutPeriod)));
         } catch (err) {
             console.error(err);
         } finally {
@@ -56,75 +48,75 @@ export default function PayoutPeriodManager() {
         }
     }
 
-    async function toggleLock(id: string, currentStatus: 'open' | 'locked') {
+    async function toggleLock(id: string, currentStatus: string) {
+        if (!authUser) return;
         const newStatus = currentStatus === 'open' ? 'locked' : 'open';
-        const msg = newStatus === 'locked'
-            ? "Locking this period will prevent any new transactions or modifications for this month. Continue?"
-            : "Unlocking this period will allow new transactions and modifications. Continue?";
-
-        if (!confirm(msg)) return;
 
         try {
-            await setDoc(doc(db, 'periods', id), {
+            await setDoc(doc(db, 'payout_periods', id), {
                 status: newStatus,
-                updatedAt: serverTimestamp()
+                lockedAt: newStatus === 'locked' ? serverTimestamp() : null,
+                lockedBy: newStatus === 'locked' ? authUser.email : null
             }, { merge: true });
 
-            setPeriods(prev => prev.map(p => p.id === id ? { ...p, status: newStatus } : p));
+            // Audit Log
+            await AuditEngine.log(
+                newStatus === 'locked' ? 'PERIOD_LOCKED' : 'PERIOD_UNLOCKED',
+                { uid: authUser.uid, email: authUser.email || 'unknown' },
+                `${newStatus === 'locked' ? 'Locked' : 'Unlocked'} payout period ${id}`,
+                { periodId: id }
+            );
+
+            fetchPeriods();
         } catch (err) {
             console.error(err);
-            alert("Failed to update period status");
+            alert("Security Error: Failed to update period status.");
         }
     }
 
     return (
-        <div className="space-y-6 text-black">
-            <div className="flex justify-between items-center">
-                <div>
-                    <h1 className="text-2xl font-bold text-gray-900 font-outfit">Payout Period Control</h1>
-                    <p className="text-gray-500">Lock periods to finalize commissions and prevent historical data changes.</p>
-                </div>
+        <div className="space-y-8 text-black pb-12">
+            <div>
+                <h1 className="text-2xl font-bold font-outfit text-slate-900">Settlement Control</h1>
+                <p className="text-slate-500 font-medium">Manage payout period locking to ensure data integrity and audit compliance.</p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {loading ? (
-                    <div className="col-span-full py-20 text-center text-gray-400 font-medium">
-                        Loading period metadata...
-                    </div>
+                    <div className="col-span-full p-12 text-center text-slate-400 font-medium">Syncing cycles...</div>
                 ) : (
-                    periods.map(period => (
-                        <div
-                            key={period.id}
-                            className={`p-6 rounded-2xl border transition-all duration-300 ${period.status === 'locked'
-                                ? 'bg-slate-50 border-slate-200'
-                                : 'bg-white border-gray-200 shadow-sm hover:shadow-md'
-                                }`}
-                        >
-                            <div className="flex justify-between items-start mb-4">
-                                <div className="p-3 bg-blue-50 text-blue-600 rounded-xl">
-                                    <Calendar className="w-6 h-6" />
+                    periods.map(p => (
+                        <div key={p.id} className={`p-8 rounded-[2.5rem] border transition-all duration-500 ${p.status === 'locked'
+                            ? 'bg-slate-900 border-slate-800 text-white shadow-2xl'
+                            : 'bg-white border-slate-100 text-slate-900 shadow-sm hover:shadow-xl'
+                            }`}>
+                            <div className="flex justify-between items-start mb-6">
+                                <div className="p-3 bg-blue-500 rounded-2xl shadow-lg shadow-blue-500/20">
+                                    <Calendar className="w-5 h-5 text-white" />
                                 </div>
-                                <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border ${period.status === 'locked'
-                                    ? 'bg-slate-100 text-slate-600 border-slate-200'
-                                    : 'bg-green-50 text-green-700 border-green-100'
+                                <div className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest ${p.status === 'locked'
+                                    ? 'bg-red-500/20 text-red-400'
+                                    : 'bg-emerald-500/10 text-emerald-600'
                                     }`}>
-                                    {period.status}
-                                </span>
+                                    {p.status}
+                                </div>
                             </div>
 
-                            <h3 className="text-xl font-bold text-gray-900 mb-1 font-outfit">
-                                {new Date(period.id + '-01').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-                            </h3>
-                            <p className="text-sm text-gray-500 mb-6">Period ID: {period.id}</p>
+                            <h3 className="text-3xl font-black font-outfit mb-2 tracking-tight">{p.id}</h3>
+                            <p className={`text-xs font-medium mb-8 ${p.status === 'locked' ? 'text-slate-400' : 'text-slate-500'}`}>
+                                {p.status === 'locked'
+                                    ? `Finalized on ${p.lockedAt ? new Date(p.lockedAt.seconds * 1000).toLocaleDateString() : 'N/A'}`
+                                    : 'Accepting new sales data'}
+                            </p>
 
                             <button
-                                onClick={() => toggleLock(period.id, period.status)}
-                                className={`w-full py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all ${period.status === 'locked'
-                                    ? 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
-                                    : 'bg-slate-900 text-white hover:bg-slate-800 shadow-lg shadow-slate-200'
+                                onClick={() => toggleLock(p.id, p.status)}
+                                className={`w-full py-4 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] transition-all flex items-center justify-center gap-3 cursor-pointer ${p.status === 'locked'
+                                    ? 'bg-white text-slate-900 hover:bg-slate-100'
+                                    : 'bg-slate-900 text-white hover:bg-slate-800 shadow-xl'
                                     }`}
                             >
-                                {period.status === 'locked' ? (
+                                {p.status === 'locked' ? (
                                     <>
                                         <Unlock className="w-4 h-4" /> Unlock Period
                                     </>
