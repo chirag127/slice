@@ -1,104 +1,94 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import {
-    onAuthStateChanged,
-    type User as FirebaseUser,
-    signOut as firebaseSignOut
+  onAuthStateChanged,
+  type User as FirebaseUser,
+  signOut as firebaseSignOut
 } from 'firebase/auth';
-import { doc, onSnapshot } from 'firebase/firestore';
-import { auth, db } from '@/lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
+import { auth, db } from '../lib/firebase/config';
 
-export type UserRole = 'admin' | 'rep' | 'pending';
+export type UserRole = 'pending' | 'rep' | 'admin' | null;
 
-export interface UserProfile {
-    uid: string;
-    email: string | null;
-    role: UserRole;
-    plan_id?: string;
-    status: 'active' | 'inactive' | 'pending';
-    displayName?: string;
+export interface AppUser {
+  uid: string;
+  email: string | null;
+  role: UserRole;
+  plan_id?: string;
+  status: 'active' | 'inactive';
 }
 
 interface AuthContextType {
-    user: FirebaseUser | null;
-    profile: UserProfile | null;
-    loading: boolean;
-    signOut: () => Promise<void>;
+  user: AppUser | null;
+  firebaseUser: FirebaseUser | null;
+  loading: boolean;
+  signOut: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const AuthContext = createContext<AuthContextType>({
+  user: null,
+  firebaseUser: null,
+  loading: true,
+  signOut: async () => {},
+});
+
+export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const [user, setUser] = useState<FirebaseUser | null>(null);
-    const [profile, setProfile] = useState<UserProfile | null>(null);
-    const [loading, setLoading] = useState(true);
+  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
+  const [user, setUser] = useState<AppUser | null>(null);
+  const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        const unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
-            setUser(currentUser);
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+      setFirebaseUser(fbUser);
 
-            if (currentUser) {
-                // Setup real-time listener for user profile
-                const userDocRef = doc(db, 'users', currentUser.uid);
-
-                const unsubscribeProfile = onSnapshot(userDocRef, (docSnap) => {
-                    if (docSnap.exists()) {
-                        setProfile({
-                            uid: currentUser.uid,
-                            ...docSnap.data()
-                        } as UserProfile);
-                    } else {
-                        // Document might not exist yet if just signed up
-                        setProfile({
-                            uid: currentUser.uid,
-                            email: currentUser.email,
-                            role: 'pending',
-                            status: 'pending'
-                        });
-                    }
-                    setLoading(false);
-                }, (error) => {
-                    console.error("Error fetching user profile:", error);
-                    setLoading(false);
-                });
-
-                return () => unsubscribeProfile();
-            } else {
-                setProfile(null);
-                setLoading(false);
-            }
-        });
-
-        return () => unsubscribeAuth();
-    }, []);
-
-    const signOut = async () => {
+      if (fbUser) {
         try {
-            await firebaseSignOut(auth);
+          // Fetch the user's role from Firestore
+          const userDocRef = doc(db, 'users', fbUser.uid);
+          const userDocSnap = await getDoc(userDocRef);
+
+          if (userDocSnap.exists()) {
+            const data = userDocSnap.data();
+            setUser({
+              uid: fbUser.uid,
+              email: fbUser.email,
+              role: data.role as UserRole,
+              plan_id: data.plan_id,
+              status: data.status || 'active'
+            });
+          } else {
+            // New user signed up, but Firestore doc hasn't been created yet.
+            // Wait for the signup flow to create it and reload, or set default to pending.
+            setUser({
+              uid: fbUser.uid,
+              email: fbUser.email,
+              role: 'pending',
+              status: 'active'
+            });
+          }
         } catch (error) {
-            console.error("Logout error:", error);
-            throw error;
+          console.error("Error fetching user role:", error);
+          setUser(null);
         }
-    };
+      } else {
+        setUser(null);
+      }
+      setLoading(false);
+    });
 
-    const value = {
-        user,
-        profile,
-        loading,
-        signOut
-    };
+    return () => unsubscribe();
+  }, []);
 
-    return (
-        <AuthContext.Provider value={value}>
-            {children}
-        </AuthContext.Provider>
-    );
+  const signOut = async () => {
+    await firebaseSignOut(auth);
+    setUser(null);
+    setFirebaseUser(null);
+  };
+
+  return (
+    <AuthContext.Provider value={{ user, firebaseUser, loading, signOut }}>
+      {!loading && children}
+    </AuthContext.Provider>
+  );
 };
-
-// eslint-disable-next-line react-refresh/only-export-components
-export function useAuth() {
-    const context = useContext(AuthContext);
-    if (context === undefined) {
-        throw new Error('useAuth must be used within an AuthProvider');
-    }
-    return context;
-}
